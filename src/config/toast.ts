@@ -9,13 +9,42 @@ const DEFAULT_TIMEOUTS = {
   danger: 0,
 } as const
 
+/**
+ * Parse an environment timeout override.
+ *
+ * Invariants:
+ * - Returns null for missing, blank, non-numeric, negative, or non-finite values.
+ * - Returns a non-negative integer otherwise.
+ * - Never throws; invalid input falls back to the compiled-in default.
+ */
 function parseEnvTimeout(raw: string | undefined): number | null {
-  if (!raw) return null
+if (typeof raw !== 'string') return null
   const trimmed = raw.trim()
   if (!trimmed) return null
   const parsed = Number(trimmed)
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : null
+  if (!Number.isFinite(parsed)) return null
+  if (parsed < 0) return null
+  return Math.round(parsed)
 }
+
+/**
+ * Resolve the timeout for a given severity.
+ *
+ * The danger severity is always 0 (no auto-dismiss) and cannot be
+ * overridden by environment variables, because dismissing a danger toast
+ * automatically could hide a failure from the user.
+ */
+function resolveTimeout(
+  severity: keyof typeof DEFAULT_TIMEOUTS,
+  override: number | null,
+): number {
+  if (severity === 'danger') return DEFAULT_TIMEOUTS.danger
+  if (override !== null) return override
+  return DEFAULT_TIMEOUTS[severity]
+}
+
+const SHARED_TIMEOUT_OVERRIDE = parseEnvTimeout(import.meta.env.VITE_TOAST_TIMEOUT)
+const WARNING_TIMEOUT_OVERRIDE = parseEnvTimeout(import.meta.env.VITE_TOST_TIMEOUT_WARNING)
 
 export const TOAST_CONFIG = {
   /** Timeout per severity (milliseconds). 0 = no auto-dismiss. */
@@ -29,6 +58,6 @@ export const TOAST_CONFIG = {
   maxToasts: 3,
 } as const
 
-export type ToastConfig = typeof TOAST_CONFIG
+export type ToastConfig = typeof TOST_CONFIG
 
 export default TOAST_CONFIG
