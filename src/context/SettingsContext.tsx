@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react'
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  useRef,
+} from 'react'
 import { createTypedCustomEvent, SETTINGS_EVENTS } from '../events/schema'
 import { useLocalStorage, safeStorage } from '../hooks/useLocalStorage'
 import { QUIET_HOURS_DEFAULTS, parseHHmm } from '../lib/quietHours'
@@ -61,32 +68,6 @@ export interface SettingsState {
    * Retry persisting the most recent settings after a failure.
    */
   retryPersist: () => Promise<void>
-}
-
-
-  addressDisplay: AddressDisplayOption
-  toastsEnabled: boolean
-  autoDismiss: AutoDismissOption
-  quietHoursEnabled: boolean
-  quietHoursStart: string
-  quietHoursEnd: string
-  setThemeMode: (m: ThemeMode) => void
-  setNetwork: (n: NetworkOption) => void
-  setAddressDisplay: (s: AddressDisplayOption) => void
-  setToastsEnabled: (b: boolean) => void
-  setAutoDismiss: (s: AutoDismissOption) => void
-  setQuietHoursEnabled: (b: boolean) => void
-  setQuietHoursStart: (value: string) => void
-  setQuietHoursEnd: (value: string) => void
-  /**
-   * Persist settings. Pass an explicit payload to save immediately (avoids the
-   * stale-state race when called right after the individual setters); omit it to
-   * persist the current context state.
-   */
-  saveSettings: (next?: SettingsPayload) => void
-  resetToDefaults: () => void
-  cancelSettings: () => void
-  hasUnsavedChanges: boolean
 }
 
 type PersistedSettings = {
@@ -192,7 +173,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [lastError, setLastError] = useState<Error | null>(initialStorage.error || null)
   const [persistedVersion, setPersistedVersion] = useState(0)
   
-  const setPersistedSettings = (value: PersistedSettings) => {
+  // Memoised: the auto-persist effect below lists this as a dependency, so an
+  // inline definition would change identity on every render and re-trigger the
+  // effect forever (setState -> re-render -> new function -> effect -> setState).
+  // Every value it touches is a stable setState updater, so `[]` is correct.
+  const setPersistedSettings = useCallback((value: PersistedSettings) => {
     setPersistedSettingsRaw(value)
     const { ok, error } = safeStorage.setItem(STORAGE_KEY, value)
     if (ok) {
@@ -203,7 +188,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       setCanPersist(false)
       setLastError(error || new Error('Unknown write error'))
     }
-  }
+  }, [])
 
   // Validation helpers for persisted values
   const VALID_NETWORKS: NetworkOption[] = ['public', 'test']
@@ -426,13 +411,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       } else {
         root.setAttribute('data-theme', themeMode)
       }
-    }
-
-    const apply = () => {
-      root.setAttribute(
-        'data-theme',
-        themeMode === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : themeMode
-      )
     }
 
     apply()

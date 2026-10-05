@@ -226,10 +226,6 @@ export default function TrustGauge({
   id = 'trust-gauge',
   correlationId,
   onCommit,
-  isLoading = false,
-  error = null,
-  onRetry,
-  isStale = false,
   hasPermission = true,
 }: TrustGaugeProps) {
   const prefersReducedMotion = useReducedMotion()

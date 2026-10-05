@@ -165,13 +165,18 @@ function logRefusedTransition(direction: 'Back' | 'Next', step: number): void {
 // Component
 // ----------------------------------------------------------------------------
 
-export default function CreateBondFlow(s{ onComplete, onCancel, onAudit }: CreateBondFlowProps) {
+export default function CreateBondFlow({ onComplete, onCancel, onAudit }: CreateBondFlowProps) {
   const { addToast } = useToast()
   const { isConnected, connect, isReauthRequired, reauth } = useWallet()
   const { balance, status: balanceStatus, refetch: refetchBalance } = useUsdcBalance()
   const prefersReducedMotion = useReducedMotion()
 
   const [step, setStep] = useState<number>(BOND_FLOW_MIN_STEP)
+  // Percent of the wizard completed so far, driving the progress bar width.
+  // Clamped to (0, 100] for any step inside the known range, so a stale or
+  // out-of-range step can never render a negative or overflowing bar width.
+  const progressPercent =
+    Math.round(((step - BOND_FLOW_MIN_STEP + 1) / BOND_FLOW_STEP_COUNT) * 100)
   const [amount, setAmount] = useState('')
   const [duration, setDuration] = useState<number | null>(null)
   const [error, setError] = useState('')
@@ -377,72 +382,6 @@ export default function CreateBondFlow(s{ onComplete, onCancel, onAudit }: Creat
     applyStep(plan.targetStep)
   }
 
-  /**
-   * Confirm handler for the final step.
-   *
-   * Failure boundaries handled here:
-   *
-   * 1. **Concurrent execution.** `submittingRef` guards against double click
-   *    and duplicate programmatic dispatch. It is set synchronously before any
-   *    await, so two interleaved invocations cannot both pass the guard.
-   * 2. **Authorization.** The wallet must be connected and the acknowledgement
-   *    checkbox must be ticked before the mutation is attempted.
-   * 3. **Partial failure.** A wallet/network rejection or error leaves the wizard
-   *    on the confirm step with the user's input intact, so they can retry.
-   *    Audit records are written for every outcome so a failed attempt can be
-   *    recovered and diagnosed.
-   * 4. **Stale state.** After a successful commit the flow is reset via
-   *    `safeReset`, which clears the correlation id and all user-visible errors.
-   */
-  const handleConfirm = async (): Promise<void> => {
-    // (1) Concurrency guard. Set the imperative flag first, then mirror it into
-    // React state for rendering.
-    if (submittingRef.current) return
-    submittingRef.current = true
-    setSubmitting(true)
-    setConfirmError('')
-
-    try {
-      // (2) Authorization + acknowledgement checks. These are re-evaluated at
-      // click time because the wallet can disconnect between renders.
-      if (!isConnected) {
-        const message = 'Please connect your wallet before confirming.'
-        setConfirmError(message)
-        addToast({ type: 'error', message })
-        return
-      }
-
-      if (!acknowledged) {
-        const message = 'Please acknowledge the risk disclaimer to continue.'
-        setConfirmError(message)
-        addToast({ type: 'error', message })
-        return
-      }
-
-      // Ensure a correlation id exists for this attempt before the first audit
-      // record is written.
-      if (!correlationIdRef.current) correlationIdRef.current = createCorrelationId()
-      recordAudit('BOND_CREATE_REQUESTED')
-
-      const result = await onComplete?.()
-      const normalized = (result ?? {}) as BondCommitResult
-      recordAudit('BOND_CREATE_COMMITTED', undefined, normalized)
-      addToast({ type: 'success', message: 'Bond created successfully.' })
-      safeReset()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      // Distinguish a user rejection from a transport/network failure so the
-      // audit trail and the toast are accurate.
-      const isRejection = /reject|denied|cancel/i.test(message)
-      recordAudit(isRejection ? 'BOND_CREATE_REJECTED' : 'BOND_CREATE_FAILED', message)
-      setConfirmError(message)
-      addToast({ type: 'error', message })
-    } finally {
-      // Always release the guard so a failed attempt can be retried.
-      submittingRef.current = false
-      if (mountedRef.current) setSubmitting(false)
-    }
-  }
 
   const handleCancel = (): void => {
     if (submittingRef.current) return
@@ -643,7 +582,7 @@ export default function CreateBondFlow(s{ onComplete, onCancel, onAudit }: Creat
   return (
     <div className="createBondFlow" data-testid="create-bond-flow">
       <div className="createBondFlow__progress" aria-label="Progress">
-        <div className="createBondFlow__progressBar" style={{ width: `${progressPercent}%` if (!prefersReducedMotion)}} />
+        <div className="createBondFlow__progressBar" style={{ width: `${progressPercent}%` }} />
       </div>
 
       {resetError && (
@@ -744,7 +683,7 @@ export default function CreateBondFlow(s{ onComplete, onCancel, onAudit }: Creat
               )
             })}
           </div>
-        </div>
+        </section>
       )}
 
       {step === BOND_FLOW_STEP_DURATION && (

@@ -9,7 +9,7 @@ describe('Toggle', () => {
     // Behavior under test: checked Settings booleans render as an active switch.
     render(<Toggle checked onChange={vi.fn()} ariaLabel="Enable toasts" />)
 
-    expect(screen.getByRole('switch', { name: 'Enable toasts' })).toBdChecked()
+    expect(screen.getByRole('switch', { name: 'Enable toasts' })).toBeChecked()
   })
 
   it('reflects the unchecked state from checked=false', () => {
@@ -36,7 +36,7 @@ describe('Toggle', () => {
     // Behavior under test: standalone Toggles expose the provided accessible name.
     render(<Toggle checked={false} onChange={vi.fn()} ariaLabel="Auto dismiss" />)
 
-    expect(screen.getByRole('switch', { name: 'Auto dismiss' })).toBeInDocument()
+    expect(screen.getByRole('switch', { name: 'Auto dismiss' })).toBeInTheDocument()
   })
 
   it('toggles with keyboard activation', async () => {

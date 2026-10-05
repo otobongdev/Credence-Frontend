@@ -71,7 +71,7 @@ describe('Attestations Page — filter, drawer, and live region', () => {
     expect(screen.getByText(/showing 2 of 5 attestations/i)).toBeInTheDocument()
   })
 
-  it('shows attestation-specific empty state when filter yields no results', () => {
+  it('shows attestation-specific empty state when filter yields no results', async () => {
     render(<Attestations />)
     const filterSelect = screen.getByRole('combobox', { name: /filter attestations/i })
 

@@ -166,8 +166,8 @@ export function buildAnnouncement(label: string): string {
  */
 export default function RouteAnnouncer() {
   const { pathname } = useLocation()
-  const [announcement, setAnnouncement] = React.useState('')
-  const lastAnnouncedLabelRef = React.useRef<string | null>(null)
+  const [announcement, setAnnouncement] = useState('')
+  const lastAnnouncedLabelRef = useRef<string | null>(null)
 
   /**
    * Tracks the pathname that was current when the pending debounce timer was

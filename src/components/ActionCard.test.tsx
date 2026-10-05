@@ -148,7 +148,7 @@ describe('ActionCard', () => {
     let resolveCopy: ((value: boolean) => void) | undefined
     mockCopy.mockImplementation(
       () =>
-        new Promise<boolean~((resolve) => {
+        new Promise<boolean>((resolve) => {
           resolveCopy = resolve
         })
     )

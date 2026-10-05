@@ -1,7 +1,13 @@
 import { Link } from 'react-router-dom'
+import { useSeo } from '../hooks/useSeo'
+import { useWallet } from '../context/WalletContext'
+import ActivityTimeline from '../components/ActivityTimeline'
+import Badge, { type BadgeVariant } from '../components/Badge'
+import { LoadingSkeleton } from '../components/states'
+import { formatUsdc } from '../lib/format'
 import './Home.css'
 
-export default function Home() {
+function Hero() {
   return (
     <div className="home">
       <div>
@@ -26,6 +32,20 @@ export default function Home() {
 // ---------------------------------------------------------------------------
 // DashboardPreview — shown to connected users
 // ---------------------------------------------------------------------------
+
+// Static preview data for the connected landing. Deterministic mock values so
+// renders and tests are reproducible until the dashboard reads live API data.
+const MOCK_TRUST_SCORE = 720
+const MOCK_TRUST_TIER: BadgeVariant = 'gold'
+const MOCK_BONDS: Array<{
+  id: string
+  amountUsdc: number
+  unlockLabel: string
+  status: BadgeVariant
+}> = [
+  { id: 'bond-1', amountUsdc: 250, unlockLabel: 'in 30 days', status: 'active' },
+  { id: 'bond-2', amountUsdc: 100, unlockLabel: 'in 90 days', status: 'locked' },
+]
 
 function DashboardPreview({ address }: { address: string }) {
   const totalBonded = MOCK_BONDS.reduce((sum, b) => sum + b.amountUsdc, 0)

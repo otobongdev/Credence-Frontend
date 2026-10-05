@@ -12,8 +12,8 @@ const defaultBreakdown: ConfirmDialogPenaltyBreakdown = {
 }
 
 function renderDialog(overrides: Partial<Parameters<typeof ConfirmDialog>[0]> = {}) {
-  const onConfirm = vi.vn()
-  const onCancel = vi.vn()
+  const onConfirm = vi.fn()
+  const onCancel = vi.fn()
 
   const props = {
     open: true,
@@ -30,8 +30,8 @@ function renderDialog(overrides: Partial<Parameters<typeof ConfirmDialog>[0]> = 
 
 /** Render without a breakdown (generic destructive action use case). */
 function renderGenericDialog(overrides: Partial<Parameters<typeof ConfirmDialog>[0]> = {}) {
-  const onConfirm = vi.vn()
-  const onCancel = vi.vn()
+  const onConfirm = vi.fn()
+  const onCancel = vi.fn()
 
   const props = {
     open: true,

@@ -917,3 +917,4 @@ describe('KeyboardShortcutsDialog — failure-boundary regressions', () => {
     expect(new Set(texts).size).toBe(texts.length)
   })
 })
+})

@@ -8,12 +8,18 @@ import type {
   Transaction,
   TrustScore,
   TrustTier,
-  ValidationError,
   components,
   operations,
 } from './types'
 
 // ── Type-level structural assertions ────────────────────────────────────────
+/**
+ * Validation error payload shape asserted below. The generated spec exposes no
+ * `ValidationError` alias, so the tests pin the wire contract locally instead of
+ * inventing a public export that callers could depend on.
+ */
+type ValidationError = { field: string; message: string }
+
 // These functions are never called. They exist solely to let tsc verify that
 // the public aliases are structurally identical to the generated schema types.
 // A spec change that removes a required field or widens an enum surfaces as a
@@ -207,9 +213,33 @@ describe('TrustScore boundaries', () => {
         typeof v.updatedAt === 'string'
       )
     }
-    expect(isTrustScore({ address: VALID_ADDRESS, score: -1, tier: 'bronze', attestations: 0, updatedAt: 'x' })).toBe(false)
-    expect(isTrustScore({ address: VALID_ADDRESS, score: 1001, tier: 'platinum', attestations: 0, updatedAt: 'x' })).toBe(false)
-    expect(isTrustScore({ address: VALID_ADDRESS, score: 500, tier: 'gold', attestations: 1, updatedAt: 'x' })).toBe(true)
+    expect(
+      isTrustScore({
+        address: VALID_ADDRESS,
+        score: -1,
+        tier: 'bronze',
+        attestations: 0,
+        updatedAt: 'x',
+      })
+    ).toBe(false)
+    expect(
+      isTrustScore({
+        address: VALID_ADDRESS,
+        score: 1001,
+        tier: 'platinum',
+        attestations: 0,
+        updatedAt: 'x',
+      })
+    ).toBe(false)
+    expect(
+      isTrustScore({
+        address: VALID_ADDRESS,
+        score: 500,
+        tier: 'gold',
+        attestations: 1,
+        updatedAt: 'x',
+      })
+    ).toBe(true)
   })
 })
 
@@ -312,7 +342,10 @@ describe('retry and concurrency invariants', () => {
       status: 'confirmed',
       hash: 'h',
     }
-    await Promise.all([Promise.resolve().then(() => upsert(tx)), Promise.resolve().then(() => upsert(tx))])
+    await Promise.all([
+      Promise.resolve().then(() => upsert(tx)),
+      Promise.resolve().then(() => upsert(tx)),
+    ])
     expect(store.size).toBe(1)
     expect(store.get('tx-concurrent')).toEqual(tx)
   })

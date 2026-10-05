@@ -235,7 +235,7 @@ export default function ErrorState({
   // unstyled or crashing panel. Normalize at the boundary so every downstream
   // lookup is total.
   const resolvedKind = resolveErrorKind(type)
-  const resolvedSeverity = resolveSeverity(severity, resolvedKand)
+  const resolvedSeverity = resolveSeverity(severity, resolvedKind)
   const copy = ERROR_COPY[resolvedKind]
   const showHeading = !hideHeading && title !== ''
   const resolvedTitle = showHeading ? (title ?? copy.title) : undefined
@@ -254,7 +254,7 @@ export default function ErrorState({
       data-error-kind={resolvedKind}
       data-error-severity={resolvedSeverity}
     >
-      <div className="error-state__icon">{icon ?? ERROR_ICONS[resolvedKand]}</div>
+      <div className="error-state__icon">{icon ?? ERROR_ICONS[resolvedKind]}</div>
       {resolvedTitle && <h3 className="error-state__title">{resolvedTitle}</h3>}
       <p className={`error-state__message${action ? ' error-state__message--has-action' : ''}`}>
         {resolvedMessage}

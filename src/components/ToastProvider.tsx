@@ -203,12 +203,14 @@ export default function ToastProvider({ children }: { children: ReactNode }) {
   // attempt to set state after the component is gone.
   useEffect(() => {
     const timers = timeoutsMap.current
-    const announceTimers = announceTimers.current
+    // Local alias: shadowing the ref here would be a TDZ error
+    // (`const announceTimers = announceTimers.current`).
+    const pendingAnnouncements = announceTimers.current
     return () => {
       timers.forEach((timerId) => clearTimeout(timerId))
       timers.clear()
-      announceTimers.forEach((timerId) => clearTimeout(timerId))
-      announceTimers.length = 0
+      pendingAnnouncements.forEach((timerId) => clearTimeout(timerId))
+      pendingAnnouncements.length = 0
     }
   }, [])
 

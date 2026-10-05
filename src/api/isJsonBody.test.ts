@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { isJsonBody } from './client'
 
+/** Cast a deliberately invalid value so boundary probes exercise the runtime guard. */
+const invalidBody = (value: unknown): Parameters<typeof isJsonBody>[0] =>
+  value as Parameters<typeof isJsonBody>[0]
+
 describe('isJsonBody', () => {
   it('returns true for plain objects and arrays (success cases)', () => {
     expect(isJsonBody({})).toBe(true)
@@ -19,12 +23,12 @@ describe('isJsonBody', () => {
   it('returns false for primitives (rejection)', () => {
     expect(isJsonBody('')).toBe(false)
     expect(isJsonBody('foo')).toBe(false)
-    expect(isJsonBody(0)).toBe(false)
-    expect(isJsonBody(1)).toBe(false)
-    expect(isJsonBody(true)).toBe(false)
-    expect(isJsonBody(false)).toBe(false)
-    expect(isJsonBody(Symbol('test'))).toBe(false)
-    expect(isJsonBody(BigInt(10))).toBe(false)
+    expect(isJsonBody(invalidBody(0))).toBe(false)
+    expect(isJsonBody(invalidBody(1))).toBe(false)
+    expect(isJsonBody(invalidBody(true))).toBe(false)
+    expect(isJsonBody(invalidBody(false))).toBe(false)
+    expect(isJsonBody(invalidBody(Symbol('test')))).toBe(false)
+    expect(isJsonBody(invalidBody(BigInt(10)))).toBe(false)
   })
 
   it('returns false for native BodyInit non-JSON types (boundary/rejection)', () => {

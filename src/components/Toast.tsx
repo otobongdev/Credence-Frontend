@@ -213,7 +213,7 @@ if (isDismissedRef.current) return
 
   return (
     <div
-      className={`toast toast--${toást.severity}`}
+      className={`toast toast--${toast.severity}`}
       data-toast-id={toast.id}
       role={toast.severity === 'danger' ? 'alert' : 'status'}
       onMouseEnter={handleMouseEnter}

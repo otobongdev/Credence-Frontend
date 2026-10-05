@@ -107,8 +107,9 @@ export class ApiSessionConflictError extends ApiError {
     super(
       409,
       message ??
-        `Session identity changed during request (epoch ${staleEpoch} ? ${currentEpoch}). Re-authenticate and retry.`,
-      { staleEpoch, currentEpoch }
+        `Session identity changed during request (epoch ${staleEpoch} → ${currentEpoch}). Re-authenticate and retry.`,
+      { staleEpoch, currentEpoch },
+      'http_error'
     )
     this.name = 'ApiSessionConflictError'
     this.staleEpoch = staleEpoch
@@ -130,7 +131,10 @@ export class ApiBodyTooLargeError extends ApiError {
 
 export const MAX_REQUEST_BODY_BYTES = 1_048_576
 const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
-const IS_DEV = env?.PROD !== true
+// Vite inlines `PROD` as a boolean at build time even though the ambient record
+// only admits strings, so widen the type before comparing to the literal. The
+// runtime value is untouched — this is a compile-time correction only.
+const IS_DEV = (env?.PROD as string | boolean | undefined) !== true
 const DIAGNOSTIC_PATH_MAX_LENGTH = 80
 const LAST_C0_CODE = 0x1f
 const DEL_CODE = 0x7f
@@ -153,80 +157,6 @@ function replaceControlCharacters(value: string): string {
     result += isControlCode(value.charCodeAt(index)) ? '?' : value[index]
   }
   return result
-}
-
-function rejectBaseUrl(): '' {
-  if (IS_DEV) {
-    console.warn(
-      '[api] VITE_API_BASE_URL is not a supported API base. Expected an empty value, ' +
-        'a root-relative prefix (e.g. "/api"), or an absolute http(s) origin. ' +
-        'Falling back to same-origin requests.'
-    )
-  }
-  return ''
-}
-
-// ── Idempotency-key replay map ───────────────────────────────────────────────
-
-type ReplayEntry = {
-  fingerprint: string
-  promise: Promise<unknown>
-}
-
-const replayEntries = new Map<string, ReplayEntry>()
-let _identityEpoch = 0
-
-export function getIdentityEpoch(): number {
-  return _identityEpoch
-}
-
-export function advanceIdentityEpoch(): number {
-  _identityEpoch += 1
-  return _identityEpoch
-}
-
-export function setIdentityEpoch(epoch?: number): number {
-  _identityEpoch = epoch ?? _identityEpoch + 1
-  return _identityEpoch
-}
-
-export function resetIdentityEpoch(): void {
-  _identityEpoch = 0
-}
-
-// ── Rate limiter ─────────────────────────────────────────────────────────────
-
-/**
- * Process-wide default rate limiter consulted by `apiFetch`.
- *
- * Built once at module init from environment overrides on top of
- * {@link DEFAULT_API_RATE_LIMIT}. Exposed (read-only via {@link
- * apiRateLimiterSnapshot}) so tests can inspect current configuration and
- * tear down bucket state via {@link resetApiRateLimiter}.
- */
-const rateLimitOverrides = readApiRateLimitOverrides({
-  VITE_API_RATE_LIMIT_MAX: env?.VITE_API_RATE_LIMIT_MAX,
-  VITE_API_RATE_LIMIT_WINDOW_MS: env?.VITE_API_RATE_LIMIT_WINDOW_MS,
-  VITE_API_RATE_LIMIT_ENABLED: env?.VITE_API_RATE_LIMIT_ENABLED,
-})
-
-export const defaultApiRateLimiter = new ApiRateLimiter({
-  maxRequests: rateLimitOverrides.maxRequests ?? DEFAULT_API_RATE_LIMIT.maxRequests,
-  windowMs: rateLimitOverrides.windowMs ?? DEFAULT_API_RATE_LIMIT.windowMs,
-  enabled: rateLimitOverrides.enabled ?? DEFAULT_API_RATE_LIMIT.enabled,
-})
-
-export function apiRateLimiterSnapshot(): Readonly<{
-  maxRequests: number
-  windowMs: number
-  enabled: boolean
-}> {
-  const cfg = defaultApiRateLimiter.config
-  return Object.freeze({ maxRequests: cfg.maxRequests, windowMs: cfg.windowMs, enabled: cfg.enabled })
-}
-
-export function resetApiRateLimiter(): void {
-  defaultApiRateLimiter.reset()
 }
 
 /**
@@ -283,6 +213,11 @@ export function normalizeBaseUrl(value: string): string {
   }
   return trimmed.replace(/\/+$/, '')
 }
+
+export const API_BASE_URL = normalizeBaseUrl(env?.VITE_API_BASE_URL || '/api')
+
+// ── Idempotency-key replay map ───────────────────────────────────────────────
+
 type ReplayEntry = {
   fingerprint: string
   promise: Promise<unknown>
@@ -424,18 +359,6 @@ type PathRejection =
   | 'path must not contain control characters'
   | 'path must not contain a URL fragment'
 
-function redactPathForDiagnostics(value: unknown): string {
-  if (typeof value !== 'string') return typeof value
-  const queryStart = value.indexOf('?')
-  const pathOnly = queryStart === -1 ? value : value.slice(0, queryStart)
-  const printable = replaceControlCharacters(pathOnly)
-  const clipped =
-    printable.length > DIAGNOSTIC_PATH_MAX_LENGTH
-      ? `${printable.slice(0, DIAGNOSTIC_PATH_MAX_LENGTH)}�`
-      : printable
-  return queryStart === -1 ? clipped : `${clipped}?<redacted>`
-}
-
 function invalidPathError(reason: PathRejection, path: unknown): ApiError {
   return new ApiError(0, `Invalid API request path: ${reason}`, {
     code: 'invalid_request_url',
@@ -461,18 +384,20 @@ export function buildUrl(path: string, baseUrl: string = API_BASE_URL): string {
   return `${normalizeBaseUrl(baseUrl)}${normalizeApiPath(path)}`
 }
 
-function isJsonBody(body: ApiFetchOptions['body']): body is Record<string, unknown> | unknown[] {
+export function isJsonBody(body: ApiFetchOptions['body']): body is Record<string, unknown> | unknown[] {
+  if (!body || typeof body !== 'object') return false
+
+  // Every `instanceof` probe is guarded so a stripped-down runtime (test
+  // environment, worker without DOM constructors) degrades to "not excluded"
+  // instead of throwing a ReferenceError mid-predicate.
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
+  const isBlob = typeof Blob !== 'undefined' && body instanceof Blob
+  const isArrayBuffer =
+    typeof ArrayBuffer !== 'undefined' && (body instanceof ArrayBuffer || ArrayBuffer.isView(body))
+  const isURLSearchParams = typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams
   const isReadableStream = typeof ReadableStream !== 'undefined' && body instanceof ReadableStream
-  return (
-    Boolean(body) &&
-    typeof body === 'object' &&
-    !(body instanceof FormData) &&
-    !(body instanceof Blob) &&
-    !(body instanceof ArrayBuffer) &&
-    !ArrayBuffer.isView(body) &&
-    !(body instanceof URLSearchParams) &&
-    !(typeof ReadableStream !== 'undefined' && body instanceof ReadableStream)
-  )
+
+  return !isFormData && !isBlob && !isArrayBuffer && !isURLSearchParams && !isReadableStream
 }
 
 function normalizeAmountFields(
@@ -564,12 +489,53 @@ const MAX_ERROR_MESSAGE_LENGTH = 500
  * - Prefers an explicit `message` string, then a `error` string, then a
  *   non-empty string payload, then a status-derived fallback.
  */
-function errorMessage(status: number, payload: unknown): string {
-  if (payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string') {
-    return payload.message
+/** Sanitizes a server-provided message: printable, trimmed, bounded. */
+function sanitizeServerMessage(message: string): string {
+  const printable = replaceControlCharacters(message).trim()
+  return printable.length > MAX_ERROR_MESSAGE_LENGTH
+    ? printable.slice(0, MAX_ERROR_MESSAGE_LENGTH)
+    : printable
+}
+
+function responseErrorMessage(status: number, payload: unknown): string {
+  if (payload && typeof payload === 'object') {
+    if ('message' in payload && typeof payload.message === 'string' && payload.message.trim()) {
+      return sanitizeServerMessage(payload.message)
+    }
+    if ('error' in payload && typeof payload.error === 'string' && payload.error.trim()) {
+      return sanitizeServerMessage(payload.error)
+    }
   }
-  if (typeof payload === 'string' && payload.trim()) return payload
+  if (typeof payload === 'string' && payload.trim()) return sanitizeServerMessage(payload)
   return 'Request failed with status ' + status
+}
+
+/** Fixed, non-empty fallback surfaced when no trustworthy message exists. */
+const FALLBACK_ERROR_MESSAGE = 'Something went wrong'
+
+/**
+ * Deterministic, user-visible message for a caught or thrown value.
+ *
+ * Invariants (enforced by the `errorMessage` suites in `client.test.ts` and
+ * `client.authorization.test.ts`):
+ * - Only genuine `Error` instances are trusted and their `message` is returned
+ *   verbatim. Extra properties (`token`, `authorization`, `stack`, ...) are
+ *   never read, so they cannot leak into logs or the error UI.
+ * - An empty or whitespace-only message falls back to a fixed non-empty
+ *   string: a blank message would render an empty error state, which is an
+ *   unrecoverable user experience.
+ * - Everything else (null, undefined, numbers, booleans, symbols, plain
+ *   objects — even objects *with* a `message` field) yields the same fixed
+ *   fallback, so attacker-controlled shapes cannot inject UI content.
+ * - Pure and total: same input → same output, never throws.
+ */
+export function errorMessage(error: unknown): string {
+  if (typeof error === 'string') return error.trim() ? error : FALLBACK_ERROR_MESSAGE
+  if (error instanceof Error) {
+    const message = typeof error.message === 'string' ? error.message : ''
+    return message.trim() ? message : FALLBACK_ERROR_MESSAGE
+  }
+  return FALLBACK_ERROR_MESSAGE
 }
 
 function requestFingerprint(
@@ -633,18 +599,14 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     }
   }
 
+  // Pre-flight: an invalid path is a deterministic caller error, so it rejects
+  // before header construction, idempotency bookkeeping, or any network state.
+  const url = buildUrl(path)
+
   const serializedBody = hasJsonBody ? JSON.stringify(wireBody) : (wireBody ?? undefined)
   const correlationId = generateCorrelationId('api-fetch')
   const requestHeaders = buildHeaders(headers, hasJsonBody, correlationId)
   const method = (init.method || 'GET').toUpperCase()
-
-  // Validate input size before expensive operations. Serializing an oversized
-  // body is wasted work and could exhaust memory or downstream resources.
-  if (hasJsonBody) {
-    if (new TextEncoder().encode(serializedBody as string).byteLength > MAX_REQUEST_BODY_BYTES) {
-      throw new ApiBodyTooLargeError(MAX_REQUEST_BODY_BYTES, { bodySize: (serializedBody as string).length })
-    }
-  }
 
   if (idempotencyKey !== undefined) {
     const normalizedKey = idempotencyKey.trim()
@@ -720,7 +682,7 @@ async function apiFetchWithoutReplay<T>(
     throw new ApiSessionConflictError(
       ctx.identityEpoch,
       _identityEpoch,
-      `Session identity changed before request was dispatched (epoch ${ctx.identityEpoch} ? ${_identityEpoch}).`
+      `Session identity changed before request was dispatched (epoch ${ctx.identityEpoch} → ${_identityEpoch}).`
     )
   }
 
@@ -728,7 +690,7 @@ async function apiFetchWithoutReplay<T>(
   try {
     response = await fetch(url, {
       ...init,
-      headers: requestHeaders,
+      headers,
       body: serializedBody,
     })
   } catch (error) {
@@ -758,13 +720,13 @@ async function apiFetchWithoutReplay<T>(
     throw new ApiSessionConflictError(
       ctx.identityEpoch,
       _identityEpoch,
-      `Session identity changed while request was in-flight (epoch ${ctx.identityEpoch} ? ${_identityEpoch}). Response discarded.`
+      `Session identity changed while request was in-flight (epoch ${ctx.identityEpoch} → ${_identityEpoch}). Response discarded.`
     )
   }
 
   const payload = await parseResponse(response)
   if (!response.ok) {
-    const message = errorMessage(response.status, payload)
+    const message = responseErrorMessage(response.status, payload)
     emitWalletSessionEvent('action_failed', {
       address: null,
       network: null,
@@ -782,76 +744,4 @@ async function apiFetchWithoutReplay<T>(
   })
 
   return payload as T
-}
-
-export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
-  const { body, amountFields, headers, ...init } = options
-  const wireBody = applyAmountFields(body, amountFields)
-  const hasJsonBody = isJsonBody(wireBody)
-  const serializedBody: BodyInit | undefined = hasJsonBody ? JSON.stringify(wireBody) : (wireBody as BodyInit | undefined)
-
-  if (hasJsonBody) {
-    const encoded = new TextEncoder().encode(serializedBody as string)
-    if (encoded.byteLength > MAX_REQUEST_BODY_BYTES) {
-      throw new ApiBodyTooLargeError(MAX_REQUEST_BODY_BYTES, { bodySize: encoded.byteLength })
-    }
-  }
-
-  const finalUrl = buildUrl(path)
-  const method = (init.method || 'GET').toUpperCase()
-  const requestHeaders = buildHeaders(headers, hasJsonBody, generateCorrelationId('api-fetch'))
-
-  if (options.idempotencyKey !== undefined) {
-    const key = options.idempotencyKey.trim()
-    if (!key) {
-      throw new ApiError(400, 'Idempotency key must not be empty', {
-        code: 'invalid_idempotency_key',
-      })
-    }
-
-    const fingerprint = requestFingerprint(finalUrl, { ...init, method }, serializedBody, requestHeaders)
-    const existing = replayEntries.get(key)
-    if (existing) {
-      if (existing.fingerprint !== fingerprint) {
-        throw replayConflict(key)
-      }
-      return existing.promise as Promise<T>
-    }
-
-    requestHeaders.set('Idempotency-Key', key)
-    const requestPromise = apiFetchWithoutReplay<T>(
-      finalUrl,
-      { ...init, headers: requestHeaders, body: serializedBody },
-      requestHeaders,
-      serializedBody,
-      {
-        correlationId: requestHeaders.get('X-Correlation-ID') || 'api-fetch',
-        path,
-        method,
-        skipRateLimit: options.skipRateLimit,
-        identityEpoch: options.identityEpoch,
-      }
-    )
-
-    replayEntries.set(key, { fingerprint, promise: requestPromise })
-    requestPromise.catch(() => {
-      const current = replayEntries.get(key)
-      if (current?.promise === requestPromise) replayEntries.delete(key)
-    })
-    return requestPromise
-  }
-
-  return apiFetchWithoutReplay<T>(
-    finalUrl,
-    { ...init, headers: requestHeaders, body: serializedBody },
-    requestHeaders,
-    serializedBody,
-    {
-      correlationId: requestHeaders.get('X-Correlation-ID') || 'api-fetch',
-      path,
-      method,
-      skipRateLimit: options.skipRateLimit,
-      identityEpoch: options.identityEpoch,
-    }
-  )
 }

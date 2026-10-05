@@ -321,7 +321,7 @@ export default function AddressInput({
         inputRef.current.focus()
       }
     }
-  }, [acceptSanitizedValue, onPasteError])
+  }, [onChange, onPasteError])
 
   let formatError: string | undefined
   if (showError) {

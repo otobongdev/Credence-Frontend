@@ -6,11 +6,11 @@ import {
   ApiError,
   ApiRateLimitError,
   MAX_REQUEST_BODY_BYTES,
-  API_BASE_URL,
   apiFetch,
   apiRateLimiterSnapshot,
   buildUrl,
   defaultApiRateLimiter,
+  errorMessage,
   normalizeBaseUrl,
   resetApiRateLimiter,
   type ApiFetchOptions,
@@ -61,8 +61,8 @@ describe('errorMessage', () => {
     expect(errorMessage({ message: 'not an error' })).toBe('Something went wrong')
   })
 
-  it('returns an empty-string message when the Error has an empty message', () => {
-    expect(errorMessage(new Error(''))).toBe('')
+  it('returns a non-empty fallback when the Error has an empty message', () => {
+    expect(errorMessage(new Error(''))).toBe('Something went wrong')
   })
 
   it('does not leak sensitive fields from the error object', () => {
@@ -1756,11 +1756,11 @@ describe('state consistency across call chain', () => {
     const methods: string[] = []
     const correlationIds: string[] = []
 
-    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
-      paths.push(url)
-      methods.push(init.method || '')
-      const headers = init.headers as Headers
-      correlationIds.push(headers.get('X-Correlation-ID') || 'missing')
+    fetchMock.mockImplementation(async (url, init) => {
+      paths.push(String(url))
+      methods.push(init?.method || '')
+      const headers = init?.headers as Headers | undefined
+      correlationIds.push(headers?.get('X-Correlation-ID') || 'missing')
       return jsonResponse({ ok: true })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -1780,9 +1780,9 @@ describe('state consistency across call chain', () => {
   it('distinct calls use distinct correlationIds even with idempotency caching', async () => {
     const correlationIds: string[] = []
 
-    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
-      const headers = init.headers as Headers
-      correlationIds.push(headers.get('X-Correlation-ID') || 'missing')
+    fetchMock.mockImplementation(async (_url, init) => {
+      const headers = init?.headers as Headers | undefined
+      correlationIds.push(headers?.get('X-Correlation-ID') || 'missing')
       return jsonResponse({ ok: true })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -1810,9 +1810,9 @@ describe('state consistency across call chain', () => {
   it('correlationId is set before rate limiting decision', async () => {
     let capturedCorrelationId: string | null = null
 
-    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
-      const headers = init.headers as Headers
-      capturedCorrelationId = headers.get('X-Correlation-ID')
+    fetchMock.mockImplementation(async (_url, init) => {
+      const headers = init?.headers as Headers | undefined
+      capturedCorrelationId = headers?.get('X-Correlation-ID') ?? null
       return jsonResponse({ ok: true })
     })
     vi.stubGlobal('fetch', fetchMock)
